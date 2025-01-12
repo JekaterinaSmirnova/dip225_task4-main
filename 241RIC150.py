@@ -1,64 +1,51 @@
-import csv
-import zlib
-import openpyxl
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+import time
+from openpyxl import load_workbook
+from collections import defaultdict
+service = Service()
+option = webdriver.ChromeOptions()
+driver = webdriver.Chrome(service=service, options=option)
 
-# Funkcija, lai ģenerētu CRC32 kodējumu
-def generate_crc32(full_name):
-    return format(zlib.crc32(full_name.encode('utf-8')) & 0xFFFFFFFF, '08x')
+name = []
 
-# 1. Lasīt people.csv un sagatavot sarakstu ar pilnajiem vārdiem
-people_file = 'people.csv'
-full_names = []
+with open("people.csv", "r") as file:
+    next(file)  
+    for line in file:
+        row = line.rstrip().split(",")
+        name.append(row[2] + " " + row[3]) 
 
-try:
-    with open(people_file, 'r', encoding='utf-8') as file:
-        reader = csv.reader(file)
-        next(reader)  # Izlaist galveni, ja tāda ir
-        for row in reader:
-            full_name = row[0].strip()  # Pieņemts, ka pilnais vārds ir pirmajā kolonnā
-            full_names.append(full_name)
-except FileNotFoundError:
-    print(f"Fails {people_file} nav atrasts.")
-    exit()
+url = "https://emn178.github.io/online-tools/crc32.html"
+driver.get(url)
+time.sleep(2)  
 
-# 2. Ģenerēt CRC32 kodējumu katram pilnajam vārdam
-crc32_names = {full_name: generate_crc32(full_name) for full_name in full_names}
+crc32_codes = []
 
-# 3. Lasīt salary.xlsx un atrast algas
-salary_file = 'salary.xlsx'
-alga_dati = {}
+for employee_name in name:
+    input_box = driver.find_element(By.ID, "input")
+    input_box.clear() 
+    input_box.send_keys(employee_name)
+    output_box = driver.find_element(By.ID, "output")
+    crc32_value = output_box.get_attribute("value")
+    crc32_codes.append(crc32_value)
 
-try:
-    wb = openpyxl.load_workbook(salary_file)
-    sheet = wb.active
+wb = load_workbook("salary.xlsx")
+ws = wb.active
 
-    for row in sheet.iter_rows(min_row=2, values_only=True):  # Sākt no 2. rindas, pieņemot, ka 1. ir galvene
-        encoded_name = row[0]  # Kodētais pilnais vārds
-        salary = row[1]  # Alga
-        if isinstance(salary, (int, float)):  # Pārbauda, vai alga ir skaitlis
-            if encoded_name in alga_dati:
-                alga_dati[encoded_name] += salary
-            else:
-                alga_dati[encoded_name] = salary
-except FileNotFoundError:
-    print(f"Fails {salary_file} nav atrasts.")
-    exit()
-except Exception as e:
-    print(f"Radās kļūda: {e}")
-    exit()
+salary_map = defaultdict(float) 
 
+for row in range(2, ws.max_row + 1): 
+    crc32_in_sheet = ws.cell(row=row, column=1).value
+    salary = ws.cell(row=row, column=2).value
+    if salary is not None: 
+        salary = float(salary)  
+        salary_map[crc32_in_sheet] += salary  
 
-
-# 5. Identificēt algas tikai norādītajiem darbiniekiem
-specific_employees = ["Adrienne Lambert", "Jo Rivers", "Hunter Hahn", "Chloe Ramirez"]
-specific_salaries = {}
-
-for employee in specific_employees:
-    encoded_name = generate_crc32(employee)
-    if encoded_name in alga_dati:
-        salary = alga_dati[encoded_name]
-        specific_salaries[employee] = salary
-        print(f"Darbinieka {employee} kopējā alga ir: {salary}")
-    else:
-        print(f"Alga darbiniekam {employee} (kodēts: {encoded_name}) nav atrasta.")
-
+target_employees = ["Chloe Ramirez", "Hunter Hahn", "Jo Rivers", "Adrienne Lambert"]
+for i, crc32_code in enumerate(crc32_codes):
+    employee_name = name[i]
+    if employee_name in target_employees:  
+        if crc32_code in salary_map:
+            salary = salary_map[crc32_code]  
+            print(f"Darbinieka {employee_name} kopējā alga: {salary}")
